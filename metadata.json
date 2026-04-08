@@ -1,0 +1,5 @@
+{
+  "name": "Enhanced Class Record",
+  "description": "A comprehensive class record system with configurable grading components (Written Work, Performance Task, End-Term), weighted scoring, and automatic grade transmutation.",
+  "requestFramePermissions": []
+}
