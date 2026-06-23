@@ -199,6 +199,7 @@ interface SortableStudentRowProps {
   showAlert: (message: string, title?: string, type?: 'info' | 'warning' | 'error' | 'success') => void;
   showExtraPoints?: boolean;
   transmutationFormula?: TransmutationFormula;
+  isRankingMode?: boolean;
 }
 
 const SortableStudentRow: React.FC<SortableStudentRowProps> = ({
@@ -226,6 +227,7 @@ const SortableStudentRow: React.FC<SortableStudentRowProps> = ({
   showAlert,
   showExtraPoints = true,
   transmutationFormula = 'default' as TransmutationFormula,
+  isRankingMode = false,
 }) => {
   const {
     attributes,
@@ -234,7 +236,7 @@ const SortableStudentRow: React.FC<SortableStudentRowProps> = ({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: student.id });
+  } = useSortable({ id: student.id, disabled: isRankingMode });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -274,13 +276,15 @@ const SortableStudentRow: React.FC<SortableStudentRowProps> = ({
   return (
     <tr ref={setNodeRef} style={style} className="hover:bg-indigo-50 dark:hover:bg-indigo-900/20 group bg-white dark:bg-gray-800 even:bg-gray-50 dark:even:bg-gray-900 transition-colors">
       <td className="sticky left-0 z-20 bg-white dark:bg-gray-800 group-hover:bg-indigo-50 dark:group-hover:bg-[#232a46] [.group:nth-child(even)_&]:bg-gray-50 dark:[.group:nth-child(even)_&]:bg-gray-900 p-1.5 text-center border-r border-gray-200 dark:border-gray-700 w-8">
-        <button 
-          {...attributes} 
-          {...listeners} 
-          className="cursor-grab active:cursor-grabbing p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-        >
-          <GripVertical className="w-3.5 h-3.5" />
-        </button>
+        {!isRankingMode && (
+          <button 
+            {...attributes} 
+            {...listeners} 
+            className="cursor-grab active:cursor-grabbing p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </button>
+        )}
       </td>
       <td 
         className={`sticky left-8 z-10 bg-white dark:bg-gray-800 group-hover:bg-indigo-50 dark:group-hover:bg-[#232a46] [.group:nth-child(even)_&]:bg-gray-50 dark:[.group:nth-child(even)_&]:bg-gray-900 p-1.5 text-center font-mono text-[10px] text-gray-500 dark:text-gray-400 border-r border-gray-200 dark:border-gray-700 w-8 cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-900/40 ${isIsolated ? 'bg-indigo-100 dark:bg-indigo-900/40 font-bold text-indigo-700 dark:text-indigo-300' : ''}`}
@@ -327,7 +331,7 @@ const SortableStudentRow: React.FC<SortableStudentRowProps> = ({
                 <input
                   type="number"
                   min="0"
-                  value={originalStudent?.wwIncentive || ''}
+                  value={originalStudent?.wwIncentive ?? ''}
                   onChange={(e) => !isViewMode && handleIncentiveChange?.(student.id, 'ww', e.target.value)}
                   onWheel={(e) => (e.target as HTMLInputElement).blur()}
                   placeholder="0"
@@ -341,7 +345,7 @@ const SortableStudentRow: React.FC<SortableStudentRowProps> = ({
                 <input
                   type="number"
                   min="0"
-                  value={originalStudent?.ptIncentive || ''}
+                  value={originalStudent?.ptIncentive ?? ''}
                   onChange={(e) => !isViewMode && handleIncentiveChange?.(student.id, 'pt', e.target.value)}
                   onWheel={(e) => (e.target as HTMLInputElement).blur()}
                   placeholder="0"
@@ -546,7 +550,7 @@ export default function ClassRecord() {
   
   const [components, setComponents] = useState<ComponentConfig[]>(DEFAULT_COMPONENTS);
   const [students, setStudents] = useState<Student[]>(DEFAULT_STUDENTS);
-  const [isolatedStudentId, setIsolatedStudentId] = useState<string | null>(null);
+  const [classNumberFilter, setClassNumberFilter] = useState('');
   const [isolatedView, setIsolatedView] = useState<{ type: 'component' | 'subcomponent', id: string } | null>(null);
   const [newStudentName, setNewStudentName] = useState('');
   const [importCandidates, setImportCandidates] = useState<Student[] | null>(null);
@@ -595,6 +599,8 @@ export default function ClassRecord() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showIncentives, setShowIncentives] = useState(false);
+  const [isRankingMode, setIsRankingMode] = useState(false);
+  const [showViewFilter, setShowViewFilter] = useState(false);
 
   const visibleComponents = components.filter(comp => {
     if (!isolatedView) return true;
@@ -651,9 +657,62 @@ export default function ClassRecord() {
   
   const [showStudentDetailsEditor, setShowStudentDetailsEditor] = useState(false);
 
-  const displayedStudents = isolatedStudentId 
-    ? students.filter(s => s.id === isolatedStudentId) 
-    : students;
+  const sortedStudents = [...students];
+
+  if (isRankingMode) {
+    sortedStudents.sort((a, b) => {
+      let aEffective = a;
+      let bEffective = b;
+      
+      if (showIncentives) {
+        const adjustmentA = calculateAdjustedScores(a, components, incentiveMode);
+        aEffective = { ...a, scores: adjustmentA.scores };
+        const adjustmentB = calculateAdjustedScores(b, components, incentiveMode);
+        bEffective = { ...b, scores: adjustmentB.scores };
+      }
+      
+      const totalA = calculateFinalGrade(components, aEffective, transmutationFormula);
+      const totalB = calculateFinalGrade(components, bEffective, transmutationFormula);
+      
+      return totalB - totalA;
+    });
+  }
+
+  const parseClassNumberFilter = (filter: string): Set<number> | null => {
+    if (!filter.trim()) return null;
+    const parts = filter.split(/[\s,]+/);
+    const allowed = new Set<number>();
+    
+    for (const part of parts) {
+      if (!part.trim()) continue;
+      const range = part.split('-');
+      if (range.length === 2) {
+        const start = parseInt(range[0].trim());
+        const end = parseInt(range[1].trim());
+        if (!isNaN(start) && !isNaN(end)) {
+          const s = Math.min(start, end);
+          const e = Math.max(start, end);
+          for (let i = s; i <= e; i++) {
+            allowed.add(i);
+          }
+        }
+      } else if (range.length === 1) {
+         const num = parseInt(range[0].trim());
+         if (!isNaN(num)) {
+           allowed.add(num);
+         }
+      }
+    }
+    return allowed.size > 0 ? allowed : null;
+  };
+
+  const parsedFilter = parseClassNumberFilter(classNumberFilter);
+
+  const displayedStudents = sortedStudents.filter(student => {
+    if (!parsedFilter) return true;
+    const originalIndex = students.findIndex(s => s.id === student.id);
+    return parsedFilter.has(originalIndex + 1);
+  });
 
   // Generate email content when dependencies change
   useEffect(() => {
@@ -722,17 +781,16 @@ export default function ClassRecord() {
       .filter(item => item.isFailing)
       .map(item => {
         const passingScore = (item.total * 0.6).toFixed(2).replace(/\.00$/, '');
-        return `• ${item.name} — ${item.score} / ${item.total} (Passing Score: ${passingScore})`;
+        const status = item.isMissing ? 'Missing' : 'Failing';
+        return `• ${item.name} — ${item.isMissing ? 'Missing' : item.score} / ${item.total} (Passing Score: ${passingScore}) [${status}]`;
       })
       .join('\n');
 
     const scoreTable = selectedItems
       .map(item => {
-        if (item.isFailing) {
-           const passingScore = (item.total * 0.6).toFixed(2).replace(/\.00$/, '');
-           return `• ${item.name} — ${item.score} / ${item.total} (Passing Score: ${passingScore})`;
-        }
-        return `• ${item.name} — ${item.score} / ${item.total}`;
+        const passingScore = (item.total * 0.6).toFixed(2).replace(/\.00$/, '');
+        const status = item.isMissing ? 'Missing' : (item.isFailing ? 'Failing' : 'Passed');
+        return `• ${item.name} — ${item.isMissing ? 'Missing' : item.score} / ${item.total} (Passing Score: ${passingScore}) [${status}]`;
       })
       .join('\n');
 
@@ -1162,6 +1220,8 @@ export default function ClassRecord() {
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (isRankingMode) return;
+    
     const { active, over } = event;
 
     if (active.id !== over?.id) {
@@ -1431,8 +1491,8 @@ export default function ClassRecord() {
 
   const handleIncentiveChange = (studentId: string, type: 'ww' | 'pt', value: string) => {
     if (isViewMode) return;
-    const numValue = value === '' ? 0 : parseFloat(value);
-    if (isNaN(numValue)) return;
+    const numValue = value === '' ? undefined : parseFloat(value);
+    if (value !== '' && isNaN(numValue!)) return;
 
     setStudents(prev => prev.map(student => {
       if (student.id === studentId) {
@@ -1584,44 +1644,48 @@ export default function ClassRecord() {
       return;
     }
 
-    const count = Math.min(pastedLines.length, students.length);
+    const count = Math.min(pastedLines.length, displayedStudents.length);
     
     setStudents(prevStudents => {
       const newStudents = [...prevStudents];
       for (let i = 0; i < count; i++) {
+        const studentToUpdate = displayedStudents[i];
+        const originalIndex = newStudents.findIndex(s => s.id === studentToUpdate.id);
+        if (originalIndex === -1) continue;
+
         const line = pastedLines[i].trim();
         
         if (line === '') {
           // Treat blank line as blank score (remove existing score)
           if (pastingTo.type === 'score') {
-            const newScores = { ...newStudents[i].scores };
+            const newScores = { ...newStudents[originalIndex].scores };
             delete newScores[pastingTo.id];
-            newStudents[i] = {
-              ...newStudents[i],
+            newStudents[originalIndex] = {
+              ...newStudents[originalIndex],
               scores: newScores
             };
           } else if (pastingTo.type === 'pt-incentive') {
-             const { ptIncentive, ...rest } = newStudents[i];
-             newStudents[i] = rest;
+             const { ptIncentive, ...rest } = newStudents[originalIndex];
+             newStudents[originalIndex] = rest;
           } else if (pastingTo.type === 'ww-incentive') {
-             const { wwIncentive, ...rest } = newStudents[i];
-             newStudents[i] = rest;
+             const { wwIncentive, ...rest } = newStudents[originalIndex];
+             newStudents[originalIndex] = rest;
           }
         } else {
           const score = parseFloat(line);
           if (!isNaN(score)) {
             if (pastingTo.type === 'score') {
-              newStudents[i] = {
-                ...newStudents[i],
+              newStudents[originalIndex] = {
+                ...newStudents[originalIndex],
                 scores: {
-                  ...newStudents[i].scores,
+                  ...newStudents[originalIndex].scores,
                   [pastingTo.id]: score
                 }
               };
             } else if (pastingTo.type === 'pt-incentive') {
-              newStudents[i] = { ...newStudents[i], ptIncentive: score };
+              newStudents[originalIndex] = { ...newStudents[originalIndex], ptIncentive: score };
             } else if (pastingTo.type === 'ww-incentive') {
-              newStudents[i] = { ...newStudents[i], wwIncentive: score };
+              newStudents[originalIndex] = { ...newStudents[originalIndex], wwIncentive: score };
             }
           }
         }
@@ -1648,8 +1712,12 @@ export default function ClassRecord() {
     }
     if (!clearingColumn) return;
 
-    // Clear scores from students for this specific column
+    // Clear scores from displayed students for this specific column
     setStudents(prev => prev.map(student => {
+      // Only clear if the student is currently displayed
+      const isDisplayed = displayedStudents.some(s => s.id === student.id);
+      if (!isDisplayed) return student;
+
       if (clearingColumn.type === 'score') {
         const newScores = { ...student.scores };
         delete newScores[clearingColumn.id];
@@ -1660,12 +1728,12 @@ export default function ClassRecord() {
       } else if (clearingColumn.type === 'pt-incentive') {
         return {
           ...student,
-          ptIncentive: 0
+          ptIncentive: undefined
         };
       } else if (clearingColumn.type === 'ww-incentive') {
         return {
           ...student,
-          wwIncentive: 0
+          wwIncentive: undefined
         };
       }
       return student;
@@ -1954,7 +2022,8 @@ export default function ClassRecord() {
           scoreSources = adjustment.sources;
         }
 
-        const row: any[] = [index + 1, effectiveStudent.name];
+        const originalIndex = students.findIndex(s => s.id === student.id);
+        const row: any[] = [originalIndex + 1, effectiveStudent.name];
 
         components.forEach(comp => {
           const stats = calculateComponentStats(comp, effectiveStudent, transmutationFormula);
@@ -2416,10 +2485,12 @@ export default function ClassRecord() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`text-xs hidden md:flex items-center gap-1.5 mr-2 ${totalWeight !== 100 ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
-               {totalWeight !== 100 && <AlertTriangle className="w-3.5 h-3.5" />}
-               Total Weight: {totalWeight}%
-            </div>
+            {totalWeight !== 100 && (
+              <div className="text-xs hidden md:flex items-center gap-1.5 mr-2 text-amber-600 font-medium">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Total Weight: {totalWeight}%
+              </div>
+            )}
             
             <div className="flex items-center gap-2">
               <button
@@ -2445,6 +2516,30 @@ export default function ClassRecord() {
             >
               <div className={`w-2 h-2 rounded-full ${showIncentives ? 'bg-indigo-600' : 'bg-gray-400'}`} />
               Incentives
+            </button>
+
+            <button
+              onClick={() => setIsRankingMode(!isRankingMode)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-md transition-colors ${
+                isRankingMode 
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700' 
+                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full ${isRankingMode ? 'bg-indigo-600' : 'bg-gray-400'}`} />
+              Ranking
+            </button>
+
+            <button
+              onClick={() => setShowViewFilter(!showViewFilter)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border rounded-md transition-colors ${
+                showViewFilter 
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700' 
+                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full ${showViewFilter ? 'bg-indigo-600' : 'bg-gray-400'}`} />
+              View
             </button>
 
             <button
@@ -2593,16 +2688,39 @@ export default function ClassRecord() {
                       <Mail className="w-3.5 h-3.5 mx-auto" />
                     </th>
                   )}
-                  <th className={`sticky top-0 ${showIncentives ? 'left-16' : 'left-[6.5rem]'} z-40 bg-gray-100 dark:bg-gray-800 p-3 font-semibold text-gray-900 dark:text-gray-100 border-r border-gray-200 dark:border-gray-700 whitespace-nowrap shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_8px_-4px_rgba(0,0,0,0.3)] text-sm`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Student Name</span>
-                      <button 
-                        onClick={() => setShowStudentDetailsEditor(true)}
-                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-indigo-600 transition-colors"
-                        title="Edit Student Details"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                  <th className={`sticky top-0 ${showIncentives ? 'left-16' : 'left-[6.5rem]'} z-40 bg-gray-100 dark:bg-gray-800 p-3 font-semibold text-gray-900 dark:text-gray-100 border-r border-gray-200 dark:border-gray-700 whitespace-nowrap shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)] dark:shadow-[4px_0_8px_-4px_rgba(0,0,0,0.3)] text-sm align-top`}>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Student Name</span>
+                        <button 
+                          onClick={() => setShowStudentDetailsEditor(true)}
+                          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-indigo-600 transition-colors"
+                          title="Edit Student Details"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {showViewFilter && (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            placeholder="Class #s (e.g., 1-10, 15)"
+                            value={classNumberFilter}
+                            onChange={(e) => setClassNumberFilter(e.target.value)}
+                            title="Filter by original class numbers (e.g. 1-29 or 1,3,7-10)"
+                            className="w-full text-[10px] font-mono border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded px-1.5 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 placeholder-gray-400 dark:placeholder-gray-500"
+                          />
+                          {classNumberFilter && (
+                            <button
+                              onClick={() => setClassNumberFilter('')}
+                              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 rounded transition-colors flex-shrink-0"
+                              title="Clear view filter"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </th>
                   {visibleComponents.map((comp, index) => {
@@ -2864,7 +2982,7 @@ export default function ClassRecord() {
                 strategy={verticalListSortingStrategy}
               >
                 <tbody className="divide-y divide-gray-100">
-                  {displayedStudents.map((student) => {
+                  {displayedStudents.map((student, displayedIndex) => {
                     const index = students.findIndex(s => s.id === student.id);
                     // Calculate adjusted scores if incentives are shown
                     let effectiveStudent = student;
@@ -2883,7 +3001,7 @@ export default function ClassRecord() {
                         key={student.id}
                         student={effectiveStudent}
                         originalStudent={showIncentives ? student : undefined}
-                        index={index}
+                        index={isRankingMode ? displayedIndex : index}
                         components={components}
                         visibleComponents={visibleComponents}
                         transmutationFormula={transmutationFormula}
@@ -2905,10 +3023,14 @@ export default function ClassRecord() {
                         showSpinButtons={showSpinButtons}
                         extraPoints={extraPoints}
                         scoreSources={scoreSources}
-                        isIsolated={isolatedStudentId === student.id}
-                        toggleIsolate={() => setIsolatedStudentId(isolatedStudentId === student.id ? null : student.id)}
+                        isIsolated={(parsedFilter?.has(index + 1) ?? false) && parsedFilter?.size === 1}
+                        toggleIsolate={() => {
+                          const classNum = (index + 1).toString();
+                          setClassNumberFilter(prev => prev === classNum ? '' : classNum);
+                        }}
                         showAlert={showAlert}
                         showExtraPoints={showExtraPoints}
+                        isRankingMode={isRankingMode}
                       />
                     );
                   })}

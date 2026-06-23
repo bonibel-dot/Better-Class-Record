@@ -116,7 +116,7 @@ export default function StudentDetailsEditor({ students, onUpdateStudents, onClo
           <table className="min-w-full border-collapse">
             <thead className="sticky top-0 z-10">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">Name</th>
+                <ColumnHeader title="Name" field="name" />
                 <ColumnHeader title="Student ID" field="studentId" />
                 <ColumnHeader title="Student Email" field="studentEmail" />
                 <ColumnHeader title="Parent Email" field="parentEmail" />

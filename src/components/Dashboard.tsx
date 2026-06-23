@@ -308,6 +308,17 @@ export default function Dashboard() {
 
   const confirmDeleteSubject = () => {
     if (subjectToDelete) {
+      if (groupedRosters[subjectToDelete]) {
+        groupedRosters[subjectToDelete].forEach(roster => {
+          deleteRoster(roster.id);
+        });
+        setRosters(prev => prev.filter(r => {
+          const match = r.name.match(/^(.*?)\s*\((.*?)\)$/);
+          const subject = match ? match[2].trim() : 'Uncategorized';
+          return subject !== subjectToDelete;
+        }));
+      }
+
       const updatedSubjects = subjects.filter(s => s !== subjectToDelete);
       setSubjects(updatedSubjects);
       saveSubjects(updatedSubjects);
@@ -418,11 +429,11 @@ export default function Dashboard() {
                 <div className="flex justify-between items-center mb-4">
                   <div className="flex items-center gap-2">
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white">{subject}</h2>
-                    {subject !== 'Uncategorized' && groupedRosters[subject].length === 0 && (
+                    {subject !== 'Uncategorized' && (
                       <button
                         onClick={() => deleteSubject(subject)}
                         className="text-gray-400 hover:text-red-500 transition-colors p-1"
-                        title="Delete empty subject"
+                        title="Delete subject"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -645,9 +656,14 @@ export default function Dashboard() {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Delete Subject?</h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Are you sure you want to delete the subject "{subjectToDelete}"?
               </p>
+              <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg mb-6 border border-red-200 dark:border-red-800/30">
+                <p className="text-sm text-red-600 dark:text-red-400 font-medium">
+                  Warning: Deleting the subject will cause all classes within this subject to be deleted.
+                </p>
+              </div>
               <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setSubjectToDelete(null)}
